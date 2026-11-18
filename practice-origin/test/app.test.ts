@@ -144,14 +144,87 @@ describe('/login', () => {
 		expect(await res.text()).toContain('<form');
 	});
 
-	test('POST mit beliebiger Eingabe liefert eine sichtbare Antwort', async () => {
-		const { app } = createApp(testConfig());
+	async function login(app: ReturnType<typeof createApp>['app'], username: string, cookie?: string) {
 		const form = new FormData();
-		form.set('username', "' OR 1=1 --");
-		form.set('password', 'x');
-		const res = await app.request('/login', { method: 'POST', body: form, headers: { host: 'team1.example.com' } });
-		expect(res.status).toBe(200);
-		expect(await res.text()).toContain('Anmeldeversuch');
+		form.set('username', username);
+		form.set('password', 'egal');
+		const headers: Record<string, string> = { host: 'team1.example.com' };
+		if (cookie) headers.cookie = cookie;
+		return app.request('/login', { method: 'POST', body: form, headers });
+	}
+
+	test('POST mit beliebigem Namen öffnet eine Session und leitet auf / um', async () => {
+		const { app } = createApp(testConfig());
+		const res = await login(app, 'anna');
+		expect(res.status).toBe(303);
+		expect(res.headers.get('location')).toBe('/');
+		expect(res.headers.get('set-cookie')).toContain('bohnenkraft_session=fixed-id-123');
+		expect(res.headers.get('set-cookie')).toContain('HttpOnly');
+	});
+
+	test('nach dem Login steht der Name oben rechts, auf jeder Seite', async () => {
+		const { app } = createApp(testConfig());
+		await login(app, 'anna');
+		for (const path of ['/', '/produkte', '/warenkorb', '/admin']) {
+			const res = await app.request(path, { headers: { host: 'team1.example.com', cookie: 'bohnenkraft_session=fixed-id-123' } });
+			const html = await res.text();
+			expect(html).toContain('Angemeldet als <strong>anna</strong>');
+			expect(html).toContain('action="/logout"');
+		}
+	});
+
+	test('ohne Session-Cookie bleibt man abgemeldet (kein Name, Link "Anmelden")', async () => {
+		const { app } = createApp(testConfig());
+		await login(app, 'anna');
+		const html = await (await app.request('/', { headers: { host: 'team1.example.com' } })).text();
+		expect(html).not.toContain('anna');
+		expect(html).toContain('href="/login"');
+	});
+
+	test('HTML-Seiten senden kein Cache-Control (Cache-Übung: Cloudflare entscheidet per Regel)', async () => {
+		const { app } = createApp(testConfig());
+		await login(app, 'anna');
+		const res = await app.request('/', { headers: { host: 'team1.example.com', cookie: 'bohnenkraft_session=fixed-id-123' } });
+		expect(res.headers.get('cache-control')).toBeNull();
+	});
+
+	test('vorhandene Session wird weiterverwendet (Warenkorb bleibt erhalten, kein neues Cookie)', async () => {
+		const { app } = createApp(testConfig({ randomId: () => 'neu' }));
+		const res = await login(app, 'bert', 'bohnenkraft_session=alt-456');
+		expect(res.headers.get('set-cookie')).toBeNull();
+		const html = await (await app.request('/', { headers: { host: 'team1.example.com', cookie: 'bohnenkraft_session=alt-456' } })).text();
+		expect(html).toContain('Angemeldet als <strong>bert</strong>');
+	});
+
+	test('Name wird HTML-escaped und gekürzt', async () => {
+		const { app } = createApp(testConfig());
+		await login(app, `<script>x</script>${'a'.repeat(100)}`);
+		const html = await (await app.request('/', { headers: { host: 'team1.example.com', cookie: 'bohnenkraft_session=fixed-id-123' } })).text();
+		expect(html).not.toContain('<script>x');
+		expect(html).toContain('&lt;script&gt;x&lt;/script&gt;');
+		expect(html).not.toContain('a'.repeat(41));
+	});
+
+	test('leerer Name: 400, keine Session', async () => {
+		const { app } = createApp(testConfig());
+		const res = await login(app, '   ');
+		expect(res.status).toBe(400);
+		expect(res.headers.get('set-cookie')).toBeNull();
+	});
+
+	test('POST ohne Body (login_rush) gibt 400 statt 500', async () => {
+		const { app } = createApp(testConfig());
+		const res = await app.request('/login', { method: 'POST', headers: { host: 'team1.example.com' } });
+		expect(res.status).toBe(400);
+	});
+
+	test('POST /logout meldet ab, das Cookie (Warenkorb) bleibt', async () => {
+		const { app } = createApp(testConfig());
+		await login(app, 'anna');
+		const res = await app.request('/logout', { method: 'POST', headers: { host: 'team1.example.com', cookie: 'bohnenkraft_session=fixed-id-123' } });
+		expect(res.status).toBe(303);
+		const html = await (await app.request('/', { headers: { host: 'team1.example.com', cookie: 'bohnenkraft_session=fixed-id-123' } })).text();
+		expect(html).not.toContain('Angemeldet als');
 	});
 });
 

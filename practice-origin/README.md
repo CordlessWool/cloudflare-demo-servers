@@ -14,7 +14,8 @@ Caddy (#53: ein Anbieter für Origin und Angriffs-Maschinen).
 | `/assets/<name>.<hash>.<ext>` | CSS/SVG, `Cache-Control: public, max-age=31536000, immutable` |
 | `/suche?q=` | absichtlich langsam (300–800 ms, **nur Timer, keine CPU-Schleife**) |
 | `/warenkorb`, `/dynamisch` (Alias) | Session-Cookie + zufällige Kennung; `/warenkorb/hinzufuegen` (POST, kein JS) legt ein Produkt hinein |
-| `/login` | GET-Formular, POST mit beliebiger Eingabe |
+| `/login` | GET-Formular; POST mit beliebigem Namen (Passwort ungeprüft) meldet die Session an (`bohnenkraft_session`, gleiche Session wie der Warenkorb) und leitet per 303 auf `/`. Danach steht „Angemeldet als …“ oben rechts auf jeder Seite. HTML-Seiten senden bewusst kein `Cache-Control`: Mit „Eligible for cache“ + erzwungener Edge-TTL sieht der nächste Besucher den fremden Namen (CDN-Übung). Leerer Name/POST ohne Body: 400 |
+| `/logout` | POST, meldet ab (Cookie und Warenkorb bleiben) |
 | `/admin`, `/admin/bestellungen`, `/admin/*` | Backoffice, **case-insensitive** (auch `/ADMIN`) |
 | `/impressum` | Platzhalter |
 | `/health` | lokaler Health-Check (cloud-init wartet darauf), **nicht gezählt** |

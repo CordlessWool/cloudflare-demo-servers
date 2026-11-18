@@ -48,6 +48,15 @@ header.site nav a {
 	font-size: 0.95rem;
 }
 header.site nav a:hover { text-decoration: underline; }
+header.site .user {
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 0.7rem;
+	font-size: 0.95rem;
+	color: #2b1d13;
+}
+header.site .user button { padding: 0.3rem 0.8rem; font-size: 0.85rem; }
 main { max-width: 860px; margin: 0 auto; padding: 2rem; }
 h1 { font-size: 1.9rem; margin-top: 0; }
 h2 { font-size: 1.3rem; }

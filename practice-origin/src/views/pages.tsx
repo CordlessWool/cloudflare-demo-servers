@@ -3,34 +3,46 @@
  */
 import type { FC, PropsWithChildren } from 'hono/jsx';
 import type { ResolvedAsset } from '../lib/assets.ts';
+import { MAX_USERNAME_LENGTH } from '../lib/const.ts';
 import { PRODUCTS, type Product } from '../lib/shop-data.ts';
 
-export interface LayoutProps extends PropsWithChildren {
-	title: string;
+/** Was jede Seite braucht: Assets, Host fürs Banner, angemeldeter Benutzer (oder null). */
+export interface PageBase {
+	assets: { style: ResolvedAsset; logo: ResolvedAsset };
 	host: string;
-	styleHref: string;
-	logoHref: string;
+	user: string | null;
 }
 
-export const Layout: FC<LayoutProps> = ({ title, host, styleHref, logoHref, children }) => (
+export const Layout: FC<PropsWithChildren<{ title: string; page: PageBase }>> = ({ title, page, children }) => (
 	<html lang="de">
 		<head>
 			<meta charset="utf-8" />
 			<meta name="viewport" content="width=device-width, initial-scale=1" />
 			<title>{title} – Bohnenkraft</title>
-			<link rel="stylesheet" href={styleHref} />
+			<link rel="stylesheet" href={page.assets.style.urlPath} />
 		</head>
 		<body>
-			<div class="banner">Diese Seite läuft als Übungs-Origin für die Domain {host}</div>
+			<div class="banner">Diese Seite läuft als Übungs-Origin für die Domain {page.host}</div>
 			<header class="site">
-				<img src={logoHref} alt="Bohnenkraft Logo" />
+				<img src={page.assets.logo.urlPath} alt="Bohnenkraft Logo" />
 				<nav>
 					<a href="/">Start</a>
 					<a href="/produkte">Produkte</a>
 					<a href="/warenkorb">Warenkorb</a>
-					<a href="/login">Login</a>
 					<a href="/suche">Suche</a>
 				</nav>
+				{page.user ? (
+					<form class="user" method="post" action="/logout">
+						<span>
+							Angemeldet als <strong>{page.user}</strong>
+						</span>
+						<button type="submit">Abmelden</button>
+					</form>
+				) : (
+					<a class="user" href="/login">
+						Anmelden
+					</a>
+				)}
 			</header>
 			<main>{children}</main>
 			<footer class="site">
@@ -40,9 +52,9 @@ export const Layout: FC<LayoutProps> = ({ title, host, styleHref, logoHref, chil
 	</html>
 );
 
-export const HomePage: FC<{ assets: { style: ResolvedAsset; logo: ResolvedAsset }; host: string }> = ({ assets, host }) => (
-	<Layout title="Start" host={host} styleHref={assets.style.urlPath} logoHref={assets.logo.urlPath}>
-		<h1>Willkommen bei Bohnenkraft</h1>
+export const HomePage: FC<{ page: PageBase }> = ({ page }) => (
+	<Layout title="Start" page={page}>
+		<h1>{page.user ? `Willkommen zurück, ${page.user}` : 'Willkommen bei Bohnenkraft'}</h1>
 		<p>Wir rösten kleine Mengen Kaffee von Hand und versenden sie frisch an unsere Kundschaft.</p>
 		<div class="hinweis">
 			<strong>Neuigkeit:</strong> Unsere Mitternachtsröstung ist wieder verfügbar – diesmal mit größerer Charge.
@@ -54,12 +66,8 @@ export const HomePage: FC<{ assets: { style: ResolvedAsset; logo: ResolvedAsset 
 	</Layout>
 );
 
-export const ProductListPage: FC<{ assets: { style: ResolvedAsset; logo: ResolvedAsset }; host: string; productImages: Map<string, ResolvedAsset> }> = ({
-	assets,
-	host,
-	productImages
-}) => (
-	<Layout title="Produkte" host={host} styleHref={assets.style.urlPath} logoHref={assets.logo.urlPath}>
+export const ProductListPage: FC<{ page: PageBase; productImages: Map<string, ResolvedAsset> }> = ({ page, productImages }) => (
+	<Layout title="Produkte" page={page}>
 		<h1>Unsere Produkte</h1>
 		<div class="product-list">
 			{PRODUCTS.map((p) => (
@@ -76,13 +84,8 @@ export const ProductListPage: FC<{ assets: { style: ResolvedAsset; logo: Resolve
 	</Layout>
 );
 
-export const ProductDetailPage: FC<{
-	assets: { style: ResolvedAsset; logo: ResolvedAsset };
-	host: string;
-	product: Product;
-	image: ResolvedAsset | undefined;
-}> = ({ assets, host, product, image }) => (
-	<Layout title={product.name} host={host} styleHref={assets.style.urlPath} logoHref={assets.logo.urlPath}>
+export const ProductDetailPage: FC<{ page: PageBase; product: Product; image: ResolvedAsset | undefined }> = ({ page, product, image }) => (
+	<Layout title={product.name} page={page}>
 		<p>
 			<a href="/produkte">← Zurück zu allen Produkten</a>
 		</p>
@@ -97,22 +100,21 @@ export const ProductDetailPage: FC<{
 	</Layout>
 );
 
-export const ImpressumPage: FC<{ assets: { style: ResolvedAsset; logo: ResolvedAsset }; host: string }> = ({ assets, host }) => (
-	<Layout title="Impressum" host={host} styleHref={assets.style.urlPath} logoHref={assets.logo.urlPath}>
+export const ImpressumPage: FC<{ page: PageBase }> = ({ page }) => (
+	<Layout title="Impressum" page={page}>
 		<h1>Impressum</h1>
 		<p>Platzhalter – fiktive Übungsseite, kein echtes Impressum.</p>
 		<p>Bohnenkraft Rösterei GmbH (fiktiv) · Musterstraße 1 · 12345 Musterstadt</p>
 	</Layout>
 );
 
-export const SearchPage: FC<{
-	assets: { style: ResolvedAsset; logo: ResolvedAsset };
-	host: string;
-	query: string | null;
-	results: Product[];
-	tookMs: number | null;
-}> = ({ assets, host, query, results, tookMs }) => (
-	<Layout title="Suche" host={host} styleHref={assets.style.urlPath} logoHref={assets.logo.urlPath}>
+export const SearchPage: FC<{ page: PageBase; query: string | null; results: Product[]; tookMs: number | null }> = ({
+	page,
+	query,
+	results,
+	tookMs
+}) => (
+	<Layout title="Suche" page={page}>
 		<h1>Suche</h1>
 		<form class="search" method="get" action="/suche">
 			<input type="text" name="q" value={query ?? ''} placeholder="z.B. Espresso" />
@@ -133,14 +135,9 @@ export const SearchPage: FC<{
 	</Layout>
 );
 
-export const CartPage: FC<{
-	assets: { style: ResolvedAsset; logo: ResolvedAsset };
-	host: string;
-	cartId: string;
-	items: { product: Product; quantity: number }[];
-}> = ({ assets, host, cartId, items }) => (
-	<Layout title="Warenkorb" host={host} styleHref={assets.style.urlPath} logoHref={assets.logo.urlPath}>
-		<h1>Ihr Warenkorb</h1>
+export const CartPage: FC<{ page: PageBase; cartId: string; items: { product: Product; quantity: number }[] }> = ({ page, cartId, items }) => (
+	<Layout title="Warenkorb" page={page}>
+		<h1>{page.user ? `Warenkorb von ${page.user}` : 'Ihr Warenkorb'}</h1>
 		<p>
 			Ihre Warenkorb-Kennung: <code>{cartId}</code>
 		</p>
@@ -170,33 +167,26 @@ export const CartPage: FC<{
 	</Layout>
 );
 
-export const LoginPage: FC<{
-	assets: { style: ResolvedAsset; logo: ResolvedAsset };
-	host: string;
-	result: { username: string } | null;
-}> = ({ assets, host, result }) => (
-	<Layout title="Login" host={host} styleHref={assets.style.urlPath} logoHref={assets.logo.urlPath}>
+export const LoginPage: FC<{ page: PageBase; error: string | null }> = ({ page, error }) => (
+	<Layout title="Login" page={page}>
 		<h1>Anmelden</h1>
+		{page.user ? (
+			<p class="hinweis">
+				Sie sind bereits als „{page.user}“ angemeldet. Eine neue Anmeldung ersetzt den Namen in dieser Sitzung.
+			</p>
+		) : null}
 		<form class="login" method="post" action="/login">
-			<input type="text" name="username" placeholder="Benutzername" autocomplete="username" />
+			<input type="text" name="username" placeholder="Benutzername" autocomplete="username" maxlength={MAX_USERNAME_LENGTH} required />
 			<input type="password" name="password" placeholder="Passwort" autocomplete="current-password" />
 			<button type="submit">Anmelden</button>
 		</form>
-		{result && (
-			<p class="hinweis">
-				Anmeldeversuch für „{result.username}“ wurde verarbeitet (dies ist eine Übungsseite, es gibt keine echten
-				Konten).
-			</p>
-		)}
+		{error ? <p class="hinweis">{error}</p> : null}
+		<p>Übungsseite: Jeder Benutzername funktioniert, das Passwort wird nicht geprüft.</p>
 	</Layout>
 );
 
-export const AdminPage: FC<{
-	assets: { style: ResolvedAsset; logo: ResolvedAsset };
-	host: string;
-	path: string;
-}> = ({ assets, host, path }) => (
-	<Layout title="Backoffice" host={host} styleHref={assets.style.urlPath} logoHref={assets.logo.urlPath}>
+export const AdminPage: FC<{ page: PageBase; path: string }> = ({ page, path }) => (
+	<Layout title="Backoffice" page={page}>
 		<h1>Bohnenkraft Backoffice</h1>
 		<p>
 			Aufgerufener Pfad: <code>{path}</code>
@@ -207,11 +197,8 @@ export const AdminPage: FC<{
 	</Layout>
 );
 
-export const AdminOrdersPage: FC<{
-	assets: { style: ResolvedAsset; logo: ResolvedAsset };
-	host: string;
-}> = ({ assets, host }) => (
-	<Layout title="Bestellungen" host={host} styleHref={assets.style.urlPath} logoHref={assets.logo.urlPath}>
+export const AdminOrdersPage: FC<{ page: PageBase }> = ({ page }) => (
+	<Layout title="Bestellungen" page={page}>
 		<h1>Bestellungen</h1>
 		<table class="orders">
 			<thead>

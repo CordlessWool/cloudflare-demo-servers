@@ -25,3 +25,5 @@ export const DEFAULT_CAPACITY_RPS = 20;
 export const DEFAULT_HARD_LIMIT_RPS = 60; // 3x Kapazität: harte Grenze je Domain, darüber 503.
 export const DEFAULT_COUNTER_CAP = 20000; // RAM-Ringpuffer, Obergrenze an Einträgen.
 export const SESSION_COOKIE_NAME = 'bohnenkraft_session';
+export const SESSION_MAX_AGE_S = 60 * 60 * 24;
+export const MAX_USERNAME_LENGTH = 40;
