@@ -10,17 +10,26 @@ import { classifyResponse, addToCounts, emptyCounts, type ResponseClassCounts } 
 import { NonceStore } from './nonceStore.ts';
 import { RateLimiter } from './rateLimiter.ts';
 import { signPayload, verifySignedCommand, type SignedEnvelope } from './signing.ts';
-import { buildToolRequest, isAttackTool, type AttackTool } from './tools.ts';
+import { buildRequest, intervalForPace, isAttackIdentity, isAttackPace, isAttackTarget, type AttackIdentity, type AttackPace, type AttackTarget } from './tools.ts';
+
+/** Protokollversion der Befehle. Alles andere wird abgelehnt. */
+export const PROTOCOL_VERSION = 2;
 
 export interface AttackCommandPayload {
 	sessionId: string;
 	teamId: string;
 	machineId: string;
 	toolEnabled: boolean;
-	/** Gewähltes Werkzeug (#38) oder null, wenn keins aktiv ist. Bestimmt Methode/Pfad/User-Agent. */
-	tool: AttackTool | null;
-	/** Zusatz-Werkzeug "Tarnung": Browser-User-Agent statt Skript-UA. */
-	disguise: boolean;
+	protocolVersion: 2;
+	/** Baustein Ziel: bestimmt Methode, Pfad und Body. */
+	target: AttackTarget;
+	/** Baustein Kennung: bestimmt den User-Agent (`none` = leerer Header). */
+	identity: AttackIdentity;
+	/** Baustein Cache umgehen: hängt `v=<8 Hex>` an den Pfad. */
+	cacheBust: boolean;
+	/** Baustein Tempo: bestimmt den Abstand (normal 5 s, slow 20 s). */
+	pace: AttackPace;
+	/** Nur informativ. Der Runner leitet den Abstand aus `pace` ab, nicht hieraus. */
 	minIntervalMs: number;
 	issuedAt: number;
 	expiresAt: number;
@@ -66,6 +75,17 @@ export interface RunnerDeps {
 }
 
 export class ReplayedNonceError extends Error {}
+export class InvalidCommandError extends Error {}
+
+/** Prüft Protokollversion und Baustein-Werte. Unbekanntes wird wie eine falsche Signatur abgelehnt. */
+export function assertValidCommand(payload: AttackCommandPayload): void {
+	const p = payload as unknown as Record<string, unknown>;
+	if (p.protocolVersion !== PROTOCOL_VERSION) throw new InvalidCommandError(`Protokollversion ${String(p.protocolVersion)} wird nicht unterstützt (erwartet ${PROTOCOL_VERSION})`);
+	if (!isAttackTarget(p.target)) throw new InvalidCommandError('Unbekanntes Ziel im Befehl');
+	if (!isAttackIdentity(p.identity)) throw new InvalidCommandError('Unbekannte Kennung im Befehl');
+	if (!isAttackPace(p.pace)) throw new InvalidCommandError('Unbekanntes Tempo im Befehl');
+	if (typeof p.cacheBust !== 'boolean') throw new InvalidCommandError('cacheBust ist kein boolean');
+}
 
 /** Holt den aktuellen Befehl und prüft Signatur/Ablaufzeit/Replay. Wirft bei jedem Problem. */
 export async function fetchAndVerifyCommand(
@@ -80,6 +100,7 @@ export async function fetchAndVerifyCommand(
 	const envelope = (await res.json()) as SignedEnvelope<AttackCommandPayload>;
 	const payload = await verifySignedCommand(config.commandSecret, envelope, deps.now());
 	if (payload.machineId !== config.machineId) throw new Error('Befehl ist nicht für diese Machine bestimmt');
+	assertValidCommand(payload);
 	if (nonceStore.has(payload.nonce)) throw new ReplayedNonceError('Nonce wurde bereits gesehen (Replay)');
 	nonceStore.add(payload.nonce);
 	return payload;
@@ -89,8 +110,9 @@ export async function fetchAndVerifyCommand(
  * Genau EIN Angriffs-Request, falls das Werkzeug aktiv ist und die Rate-Untergrenze es
  * erlaubt. Das Ziel kommt ausschließlich aus der Maschinen-Umgebung (`config.targetDomain`,
  * #37: "kein frei wählbares Ziel", #52: "nie per Befehl") -- der Befehl trägt keine Domain mehr,
- * also kann kein Befehl dieses Ziel umlenken. Der konkrete Pfad/Werkzeug-Muster wird in #38
- * festgelegt; hier wird der Root-Pfad als Platzhalter verwendet (trifft jede Domain).
+ * also kann kein Befehl dieses Ziel umlenken. Methode, Pfad, Body und User-Agent kommen aus den
+ * Bausteinen des Befehls (`buildRequest`); der Abstand aus `pace`. Ungültige Bausteine werfen
+ * `InvalidCommandError`, bevor irgendein Request entsteht.
  */
 export async function maybeSendAttackRequest(
 	deps: RunnerDeps,
@@ -98,18 +120,22 @@ export async function maybeSendAttackRequest(
 	payload: AttackCommandPayload,
 	limiter: RateLimiter
 ): Promise<ResponseClassCounts | null> {
-	if (!payload.toolEnabled || !isAttackTool(payload.tool)) return null;
+	// Defensiv auch hier prüfen: ungültige Bausteine führen nie zu einem Request.
+	assertValidCommand(payload);
+	if (!payload.toolEnabled) return null;
 	const now = deps.now();
-	if (limiter.msUntilNextAllowed(now) > 0) return null;
+	// Abstand aus `pace` (nie unter RATE_FLOOR_MS), nicht aus minIntervalMs.
+	if (limiter.msUntilNextAllowed(now, intervalForPace(payload.pace)) > 0) return null;
 	limiter.recordRequest(now);
 	const scheme = deps.targetScheme ?? 'https';
-	const req = buildToolRequest(payload.tool, { disguise: payload.disguise });
+	const req = buildRequest(payload);
 	const res = await deps.fetchFn(`${scheme}://${config.targetDomain}${req.path}`, {
 		method: req.method,
-		headers: { 'user-agent': req.userAgent }
+		headers: req.headers,
+		...(req.body !== undefined ? { body: req.body } : {})
 	});
 	const cls = classifyResponse({ status: res.status, headers: res.headers });
-	deps.log(`${req.method} ${req.path} (${payload.tool}) -> ${res.status} / ${cls}`);
+	deps.log(`${req.method} ${req.path} (${payload.target}/${payload.identity}/${payload.pace}) -> ${res.status} / ${cls}`);
 	return addToCounts(emptyCounts(), cls);
 }
 

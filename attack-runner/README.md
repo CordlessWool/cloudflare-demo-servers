@@ -9,6 +9,16 @@ Dieses Package braucht für
 seine Tests (`bun test`) keine Credentials: es testet die reine Logik (Signatur, Klassifikation,
 Rate, Nonce) und den Ablauf gegen einen lokalen Test-Server (`test/runner.test.ts`).
 
+## Protokoll v2: Baukasten
+
+Der Befehl trägt keinen festen Werkzeugnamen mehr, sondern Bausteine: `target`
+(`search|login|admin|sweep|home`), `identity` (`script|browser|googlebot|none`), `cacheBust`
+(boolean), `pace` (`normal` = 5 s, `slow` = 20 s) und `protocolVersion: 2`. Der Runner baut daraus
+genau einen Request je Zyklus (`src/tools.ts`, `buildRequest`). Bei `identity: none` sendet er einen
+leeren `user-agent`-Header (Bun würde sonst `Bun/<version>` senden). Unbekannte Werte oder eine
+andere `protocolVersion` lehnt er ab wie eine falsche Signatur, ohne Request. Der Abstand kommt aus
+`pace`, nie unter `RATE_FLOOR_MS`. Details: [`PROTOCOL.md`](PROTOCOL.md).
+
 ## Wer steuert die Maschine?
 
 Nur die App (Cloudflare Worker). Sie allein hält das DigitalOcean-Token, legt die Droplets an
@@ -26,7 +36,7 @@ Teilnehmer haben keinen Zugang.
   `src/signing.ts`), abgelaufene Befehle werden abgelehnt, jede Nonce nur einmal akzeptiert
   (`src/nonceStore.ts`, im RAM, die Maschine lebt nur eine Runde).
 - **Harte Rate-Obergrenze im Programm:** `RATE_FLOOR_MS` (5 s) wird unabhängig vom Befehlsinhalt
-  erzwungen (`src/rateLimiter.ts`).
+  erzwungen (`src/rateLimiter.ts`); `pace: slow` verlängert den Abstand auf 20 s, verkürzen geht nicht.
 - **Timer:** Der Prozess beendet sich nach `SELF_DESTRUCT_MS` (45 min) auf jeden Fall und wird
   nicht neu gestartet (`Restart=on-failure`). Das ist kein Steuerungsweg, nur ein
   Sicherheitsnetz. Das Droplet selbst löscht die App: "Spiel beenden", Notaus oder der Cron
@@ -46,13 +56,13 @@ Teilnehmer haben keinen Zugang.
 ## Binary für die Droplets bauen und veröffentlichen
 
 cloud-init lädt `attack-runner-linux-x64` ohne Anmeldung aus dem Release dieses Repos mit dem
-Tag aus der App-Variable `ATTACK_RUNNER_VERSION` (Standard `attack-runner-v1`). Gebaut wird von
+Tag aus der App-Variable `ATTACK_RUNNER_VERSION` (ab Protokoll v2: `attack-runner-v2`). Gebaut wird von
 GitHub Actions (`.github/workflows/release.yml`): ein Tag pushen, den Rest macht die Action
 (prüfen, testen, Linux-Binary bauen, Release anlegen).
 
 ```sh
-git tag attack-runner-v2
-git push origin attack-runner-v2
+git tag attack-runner-v3
+git push origin attack-runner-v3
 ```
 
 Danach `ATTACK_RUNNER_VERSION` in der App (`wrangler.jsonc`) auf den neuen Tag setzen und

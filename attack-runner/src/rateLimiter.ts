@@ -11,10 +11,13 @@ export class RateLimiter {
 
 	constructor(private readonly floorMs: number = RATE_FLOOR_MS) {}
 
-	/** Wie viele ms bis zur nächsten erlaubten Anfrage, ausgehend von `now` (0, wenn sofort erlaubt). */
-	msUntilNextAllowed(now: number): number {
+	/**
+	 * Wie viele ms bis zur nächsten erlaubten Anfrage, ausgehend von `now` (0, wenn sofort erlaubt).
+	 * `intervalMs` (aus dem Tempo) kann den Abstand nur VERLÄNGERN, nie unter die Untergrenze senken.
+	 */
+	msUntilNextAllowed(now: number, intervalMs: number = this.floorMs): number {
 		if (this.lastRequestAt === null) return 0;
-		return Math.max(0, this.floorMs - (now - this.lastRequestAt));
+		return Math.max(0, Math.max(this.floorMs, intervalMs) - (now - this.lastRequestAt));
 	}
 
 	/** Muss direkt VOR jeder tatsächlich gesendeten Anfrage aufgerufen werden. */

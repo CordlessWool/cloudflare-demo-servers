@@ -8,8 +8,10 @@ deshalb ist dieses Dokument die Quelle der Wahrheit, nicht ein geteiltes Package
 Änderungen an einer Seite (`attackSigning.ts`/`responseClass.ts` bzw. `signing.ts`/
 `classify.ts`) dieses Dokument und die jeweils andere Seite nachziehen.
 
-Konsumenten: #38 (Werkzeugkasten/Angreifer-Bildschirm, legt `toolEnabled`/zukünftige
-Werkzeug-IDs fest), #39 (Live-Anzeige/Messung im Schritt „WAF-Spiel“, liest `attack_reports`).
+**Aktuelle Version: Protokoll v2 (Angriffs-Baukasten, Release `attack-runner-v2`).**
+
+Konsumenten: #38 (Baukasten/Angreifer-Bildschirm, legt `toolEnabled` und die Bausteinwerte
+fest), #39 (Live-Anzeige/Messung im Schritt „WAF-Spiel“, liest `attack_reports`).
 
 ## Transportweg
 
@@ -42,10 +44,19 @@ Whitespace, rekursiv. Signierer und Prüfer MÜSSEN exakt denselben Algorithmus 
 | `sessionId` | string | Sitzung |
 | `teamId` | string | Spielgruppe der Angreifer (`game_groups.id`, #82; der Feldname bleibt für den Runner gleich) |
 | `machineId` | string | App-eigene ID der Maschine (`attack_machines.id`), für die dieser Befehl gilt |
-| `toolEnabled` | boolean | Werkzeug an/aus. Die App setzt es nur dann auf `true`, wenn die Gruppe ein Werkzeug gewählt hat (`tool != null`) **und** ihr Anfragen-Budget noch nicht aufgebraucht ist (siehe unten). |
-| `tool` | string \| null | Gewähltes Werkzeug (#38) aus dem festen Kasten (`AttackTool`, siehe unten) oder `null`. Bestimmt Methode, Pfad und User-Agent der Anfrage. Der Runner baut daraus den Request (`tools.ts`/`buildToolRequest`), ohne freie Parameter. |
-| `disguise` | boolean | Zusatz-Werkzeug „Tarnung": Browser-User-Agent statt Skript-UA. |
-| `minIntervalMs` | number | Vom Server vorgegebene Rate (informativ -- der Runner erzwingt seine EIGENE, hart codierte Untergrenze unabhängig davon, siehe `RATE_FLOOR_MS`/`ATTACK_RATE_MIN_INTERVAL_MS`, beide 5000) |
+| `toolEnabled` | boolean | Angriff an/aus. Die App setzt es nur dann auf `true`, wenn die Maschine eingeschaltet ist **und** das Anfragen-Budget der Gruppe noch nicht aufgebraucht ist (siehe unten). |
+| `protocolVersion` | number | Immer `2`. Jeder andere Wert (auch `1`) wird abgelehnt. |
+| `target` | string | Baustein Ziel: `search` \| `login` \| `admin` \| `sweep` \| `home` (siehe Bausteine) |
+| `identity` | string | Baustein Kennung: `script` \| `browser` \| `googlebot` \| `none` |
+| `cacheBust` | boolean | Baustein „Cache umgehen": hängt `v=<8 Hex>` an den Pfad |
+| `pace` | string | Baustein Tempo: `normal` (5000 ms) \| `slow` (20000 ms) |
+| `minIntervalMs` | number | Informativ: die App setzt 5000 bzw. 20000 aus `pace`. Der Runner leitet den Abstand aus `pace` ab, nicht aus diesem Feld, und erzwingt seine EIGENE, hart codierte Untergrenze (`RATE_FLOOR_MS`, 5000). |
+
+Entfallen gegenüber v1: `tool` und `disguise`.
+
+**Ablehnung unbekannter Werte:** Ein Befehl mit `protocolVersion !== 2`, unbekanntem `target`,
+`identity` oder `pace` oder einem `cacheBust`, das kein boolean ist, wird behandelt wie eine
+falsche Signatur: der Runner lehnt ihn ab (`InvalidCommandError`) und sendet keinen Request.
 | `issuedAt` | number (ms) | Ausstellungszeitpunkt |
 | `expiresAt` | number (ms) | Ablaufzeit; nach diesem Zeitpunkt lehnt der Runner den Befehl ab |
 | `nonce` | string (hex) | Einmal-Kennung. Der Runner merkt sich gesehene Nonces im RAM (`NonceStore`) und lehnt eine zweite Zustellung derselben Nonce ab. Die App merkt sich jede ausgegebene Nonce in `attack_command_nonces` (D1) und erlaubt genau EINEN Verbrauch (für eine Meldung). |
@@ -73,25 +84,53 @@ Ablehnungsgründe des Runners: falsche Signatur, `now > expiresAt`, Nonce schon 
 `machineId` im Payload ≠ eigene Machine-ID. Bei Ablehnung: kein Angriffs-Request in diesem
 Zyklus, nächster Poll in `COMMAND_POLL_INTERVAL_MS`.
 
-### Werkzeugkasten `AttackTool` (#38)
+### Baukasten (Protokoll v2)
 
-Fester Satz, von App (`const.ts`) und Runner (`tools.ts`) identisch geführt. Jedes Werkzeug
-erzeugt genau EINEN beobachtbaren Request (`buildToolRequest`); variierende Teile (Suchbegriff,
-Pfad) kommen aus einer festen Liste. Die Ziel-Domain bleibt getrennt (aus der Umgebung, #37).
+Die Angreifer kombinieren Bausteine statt eines festen Werkzeugs. Die Wertemengen sind fest, von
+App (`const.ts`/`attackBlocks.ts`) und Runner (`tools.ts`) identisch geführt; freie Werte gibt es
+nicht. Jede Konfiguration erzeugt genau EINEN beobachtbaren Request je Zyklus (`buildRequest`).
+Die Ziel-Domain bleibt getrennt (aus der Umgebung, #37). Die Region ist kein Befehlsfeld, sondern
+Eigenschaft der Maschine (Lebenszyklus, #52).
 
-| Wert | Request | Erkennungsmerkmal | Abwehr auf Pro |
-|---|---|---|---|
-| `search_flood` | `GET /suche?q=<wechselnd>` | viele Suchanfragen | Rate Limit auf `/suche` oder Custom Rule |
-| `login_rush` | `POST /login` | viele Logins | Rate Limit oder Challenge auf `/login` |
-| `page_sweep` | `GET <wechselnder Pfad, auch 404>` | viele verschiedene URLs | Custom Rule auf Pfadmuster, SBFM |
-| `foreign_country` | `GET /` (Browser-UA) | Region der Maschine | Custom Rule auf `ip.src.country` |
-| `suspicious_ua` | `GET /` mit Skript-UA | Skript-User-Agent | User-Agent-Sperre oder Custom Rule |
+Signatur einer Konfiguration (App, Wertung): `${target}|${identity}|${cacheBust ? 1 : 0}`
+(das Tempo gehört nicht dazu).
 
-User-Agents: Skript-UA `BohnenkraftLastTest/1.0 (+Cloudflare-Schulung)` ist das Merkmal von
-`suspicious_ua`. Das Zusatz-Werkzeug **Tarnung** (`disguise: true`) schaltet bei den übrigen
-Werkzeugen auf einen Browser-User-Agent um; bei `suspicious_ua` wird es ignoriert (der Skript-UA
-IST dort das Merkmal). Das Zusatz-Werkzeug **Verteilen** ist kein eigener Request, sondern dasselbe
-Werkzeug auf mehreren Maschinen/Regionen (Lebenszyklus, #37/#52).
+**Ziel (`target`)**
+
+| Wert | Request |
+|---|---|
+| `search` | `GET /suche?q=<Begriff aus SEARCH_TERMS>` |
+| `login` | `POST /login`, `Content-Type: application/x-www-form-urlencoded`, Body `username=<Name aus LOGIN_NAMES>&password=geheim123` |
+| `admin` | `GET` auf einen Pfad aus `['/admin', '/ADMIN', '/Admin/bestellungen']` |
+| `sweep` | `GET` auf einen Pfad aus `SWEEP_PATHS` (auch nicht vorhandene, 404) |
+| `home` | `GET /` |
+
+**Kennung (`identity`)**
+
+| Wert | User-Agent |
+|---|---|
+| `script` | `BohnenkraftLastTest/1.0 (+Cloudflare-Schulung)` |
+| `browser` | normaler Browser-UA (`DISGUISE_USER_AGENT`, Chrome 125 unter Windows) |
+| `googlebot` | `Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)` (nur behauptet) |
+| `none` | Header `user-agent` mit **leerem** Wert (Bun-`fetch` sendet sonst `Bun/<version>`) |
+
+**Cache umgehen (`cacheBust`):** `true` hängt `v=<8 Hex>` (zufällig je Anfrage) an den Pfad,
+mit `?` oder, wenn schon eine Query da ist, mit `&`.
+
+**Tempo (`pace`):** `normal` = 5000 ms, `slow` = 20000 ms. Abstand =
+`max(RATE_FLOOR_MS, pace === 'slow' ? 20000 : 5000)`, aus `pace` abgeleitet, nicht aus
+`minIntervalMs`.
+
+### Request-Bau im Runner
+
+`buildRequest(blocks, rng)` in `src/tools.ts` liefert `{ method, path, headers, body? }`:
+
+1. Methode, Pfad und gegebenenfalls Body und `content-type` aus `target`.
+2. Header `user-agent` aus `identity` (immer gesetzt, bei `none` leer).
+3. Bei `cacheBust` `v=<8 Hex>` an den Pfad anhängen.
+
+Variierende Teile (Begriff, Pfad, Name, Hex) kommen aus `rng` (Tests legen sie fest). Vor dem
+Bau prüft der Runner Version und Werte (`assertValidCommand`), danach den Abstand (`pace`).
 
 ## Antwortklassen (`ResponseClass`)
 

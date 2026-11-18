@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { fetchAndVerifyCommand, maybeSendAttackRequest, sendReport, mergeCounts, validateTargetDomain, ReplayedNonceError, InvalidTargetDomainError, type AttackCommandPayload, type RunnerConfig, type RunnerDeps } from '../src/runner.ts';
+import { fetchAndVerifyCommand, maybeSendAttackRequest, sendReport, mergeCounts, validateTargetDomain, ReplayedNonceError, InvalidCommandError, InvalidTargetDomainError, type AttackCommandPayload, type RunnerConfig, type RunnerDeps } from '../src/runner.ts';
 import { NonceStore } from '../src/nonceStore.ts';
 import { RateLimiter } from '../src/rateLimiter.ts';
 import { signPayload, verifySignedCommand } from '../src/signing.ts';
 import { emptyCounts } from '../src/classify.ts';
-import { AttackTool } from '../src/tools.ts';
+import { AttackIdentity, AttackPace, AttackTarget, SCRIPT_USER_AGENT } from '../src/tools.ts';
 
 const SECRET = 'test-secret';
 const POLL_TOKEN = 'poll-token';
@@ -17,9 +17,11 @@ function makePayload(overrides: Partial<AttackCommandPayload> = {}): AttackComma
 		teamId: 't1',
 		machineId: MACHINE_ID,
 		toolEnabled: true,
-		tool: AttackTool.SEARCH_FLOOD,
-		disguise: false,
-		minIntervalMs: 5000,
+		protocolVersion: 2,
+			target: AttackTarget.SEARCH,
+			identity: AttackIdentity.SCRIPT,
+			cacheBust: false,
+			pace: AttackPace.NORMAL,		minIntervalMs: 5000,
 		issuedAt: now,
 		expiresAt: now + 30_000,
 		nonce: `nonce-${Math.random()}`,
@@ -83,6 +85,23 @@ describe('fetchAndVerifyCommand', () => {
 		const config = makeConfig({ appBaseUrl: `http://127.0.0.1:${server.port}` });
 		await expect(fetchAndVerifyCommand(deps(fetch), config, new NonceStore())).rejects.toThrow();
 	});
+
+	const invalid: [string, Record<string, unknown>][] = [
+		['protocolVersion 1', { protocolVersion: 1 }],
+		['protocolVersion 3', { protocolVersion: 3 }],
+		['unbekanntes target', { target: 'search_flood' }],
+		['unbekannte identity', { identity: 'curl' }],
+		['unbekanntes pace', { pace: 'fast' }],
+		['cacheBust kein boolean', { cacheBust: 'ja' }]
+	];
+	for (const [name, override] of invalid) {
+		test(`lehnt gültig signierten Befehl mit ${name} ab (wie falsche Signatur)`, async () => {
+			const payload = makePayload(override as Partial<AttackCommandPayload>);
+			server = Bun.serve({ port: 0, fetch: async () => Response.json(await signPayload(SECRET, payload)) });
+			const config = makeConfig({ appBaseUrl: `http://127.0.0.1:${server.port}` });
+			await expect(fetchAndVerifyCommand(deps(fetch), config, new NonceStore())).rejects.toBeInstanceOf(InvalidCommandError);
+		});
+	}
 });
 
 describe('maybeSendAttackRequest', () => {
@@ -103,24 +122,80 @@ describe('maybeSendAttackRequest', () => {
 		expect(result).toEqual({ passed: 1, blocked: 0, cached: 0, origin_overload: 0 });
 	});
 
-	test('Werkzeug bestimmt Methode, Pfad und User-Agent des Requests (#38)', async () => {
-		const seen: { value: { method: string; path: string; ua: string | null } | null } = { value: null };
+	test('Bausteine bestimmen Methode, Pfad, Body und User-Agent des Requests', async () => {
+		const seen: { value: { method: string; path: string; ua: string | null; ct: string | null; body: string } | null } = { value: null };
 		targetServer = Bun.serve({
 			port: 0,
-			fetch: (req) => {
+			fetch: async (req) => {
 				const u = new URL(req.url);
-				seen.value = { method: req.method, path: u.pathname, ua: req.headers.get('user-agent') };
+				seen.value = { method: req.method, path: u.pathname, ua: req.headers.get('user-agent'), ct: req.headers.get('content-type'), body: await req.text() };
 				return new Response('ok', { status: 200 });
 			}
 		});
 		const config = makeConfig({ targetDomain: `127.0.0.1:${targetServer.port}` });
-		await maybeSendAttackRequest({ ...deps(fetch), targetScheme: 'http' }, config, makePayload({ tool: AttackTool.LOGIN_RUSH }), new RateLimiter(5000));
-		expect(seen.value).toEqual({ method: 'POST', path: '/login', ua: 'BohnenkraftLastTest/1.0 (+Cloudflare-Schulung)' });
+		await maybeSendAttackRequest({ ...deps(fetch), targetScheme: 'http' }, config, makePayload({ target: AttackTarget.LOGIN }), new RateLimiter(5000));
+		expect(seen.value?.method).toBe('POST');
+		expect(seen.value?.path).toBe('/login');
+		expect(seen.value?.ua).toBe(SCRIPT_USER_AGENT);
+		expect(seen.value?.ct).toBe('application/x-www-form-urlencoded');
+		expect(seen.value?.body).toMatch(/^username=[^&]+&password=geheim123$/);
 	});
 
-	test('Werkzeug an, aber tool=null -> kein Request', async () => {
-		const result = await maybeSendAttackRequest(deps(fetch), makeConfig(), makePayload({ tool: null }), new RateLimiter(5000));
-		expect(result).toBeNull();
+	test('identity none: der Server sieht einen leeren user-agent, nicht Bun/...', async () => {
+		const seen: { ua: string | null } = { ua: 'unset' };
+		targetServer = Bun.serve({
+			port: 0,
+			fetch: (req) => {
+				seen.ua = req.headers.get('user-agent');
+				return new Response('ok', { status: 200 });
+			}
+		});
+		const config = makeConfig({ targetDomain: `127.0.0.1:${targetServer.port}` });
+		await maybeSendAttackRequest({ ...deps(fetch), targetScheme: 'http' }, config, makePayload({ target: AttackTarget.HOME, identity: AttackIdentity.NONE }), new RateLimiter(5000));
+		expect(seen.ua).toBe('');
+	});
+
+	test('cacheBust hängt v= an den gesendeten Pfad', async () => {
+		const seen: { search: string } = { search: '' };
+		targetServer = Bun.serve({
+			port: 0,
+			fetch: (req) => {
+				seen.search = new URL(req.url).search;
+				return new Response('ok', { status: 200 });
+			}
+		});
+		const config = makeConfig({ targetDomain: `127.0.0.1:${targetServer.port}` });
+		await maybeSendAttackRequest({ ...deps(fetch), targetScheme: 'http' }, config, makePayload({ target: AttackTarget.HOME, cacheBust: true }), new RateLimiter(5000));
+		expect(seen.search).toMatch(/^\?v=[0-9a-f]{8}$/);
+	});
+
+	test('ungültige Bausteine -> kein fetch, InvalidCommandError', async () => {
+		let calls = 0;
+		const countingFetch = (async () => {
+			calls++;
+			return new Response('ok');
+		}) as unknown as typeof fetch;
+		const bad = makePayload({ target: 'nope' as never });
+		await expect(maybeSendAttackRequest({ ...deps(countingFetch), targetScheme: 'http' }, makeConfig(), bad, new RateLimiter(5000))).rejects.toBeInstanceOf(InvalidCommandError);
+		expect(calls).toBe(0);
+	});
+
+	test('pace slow: nach 5 s noch gesperrt, nach 20 s erlaubt; normal nach 5 s erlaubt', async () => {
+		targetServer = Bun.serve({ port: 0, fetch: () => new Response('ok', { status: 200 }) });
+		const config = makeConfig({ targetDomain: `127.0.0.1:${targetServer.port}` });
+		const at = (t: number): RunnerDeps => ({ fetchFn: fetch, now: () => t, log: () => {}, targetScheme: 'http' });
+		const slow = makePayload({ target: AttackTarget.HOME, pace: AttackPace.SLOW, minIntervalMs: 5000 });
+		const limiter = new RateLimiter(5000);
+		limiter.recordRequest(1_000_000);
+		expect(await maybeSendAttackRequest(at(1_005_000), config, slow, limiter)).toBeNull();
+		expect(await maybeSendAttackRequest(at(1_019_999), config, slow, limiter)).toBeNull();
+		expect(await maybeSendAttackRequest(at(1_020_000), config, slow, limiter)).not.toBeNull();
+
+		const normal = makePayload({ target: AttackTarget.HOME, pace: AttackPace.NORMAL, minIntervalMs: 1 });
+		const l2 = new RateLimiter(5000);
+		l2.recordRequest(1_000_000);
+		expect(await maybeSendAttackRequest(at(1_004_999), config, normal, l2)).toBeNull();
+		expect(await maybeSendAttackRequest(at(1_005_000), config, normal, l2)).not.toBeNull();
 	});
 
 	test('Rate-Untergrenze verhindert eine zu frühe zweite Anfrage', async () => {
