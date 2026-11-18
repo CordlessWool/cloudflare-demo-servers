@@ -1,0 +1,15 @@
+{
+  "name": "cloudflare-demo-servers",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "workspaces": ["practice-origin", "attack-runner"],
+  "scripts": {
+    "test": "bun --filter '*' test",
+    "check": "bun --filter '*' check",
+    "build:linux": "bun --filter '*' build:linux"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

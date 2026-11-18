@@ -1,0 +1,41 @@
+# Ein Tag `<paket>-v<n>` (z. B. practice-origin-v2) baut das Linux-Binary dieses Pakets und
+# hängt es als `<paket>-linux-x64` an ein Release mit demselben Namen. cloud-init auf den
+# Droplets lädt genau diese Datei ohne Anmeldung.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'practice-origin-v*'
+      - 'attack-runner-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - name: Paket aus dem Tag bestimmen
+        id: pkg
+        run: echo "name=${TAG%-v*}" >> "$GITHUB_OUTPUT"
+      - name: Prüfen und testen
+        working-directory: ${{ steps.pkg.outputs.name }}
+        run: |
+          bun run check
+          bun test
+      - name: Linux-Binary bauen
+        working-directory: ${{ steps.pkg.outputs.name }}
+        run: bun run build:linux
+      - name: Release anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PKG: ${{ steps.pkg.outputs.name }}
+        run: gh release create "$TAG" "$PKG/dist/$PKG-linux-x64" --title "$TAG" --generate-notes

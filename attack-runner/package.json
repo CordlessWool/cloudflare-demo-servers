@@ -1,0 +1,21 @@
+{
+	"name": "attack-runner",
+	"private": true,
+	"type": "module",
+	"version": "0.1.0",
+	"scripts": {
+		"dev": "bun run --watch src/index.ts",
+		"start": "bun run src/index.ts",
+		"build": "bun build --compile --minify --sourcemap src/index.ts --outfile dist/attack-runner",
+		"build:linux": "bun build --compile --minify --target=bun-linux-x64 src/index.ts --outfile dist/attack-runner-linux-x64",
+		"check": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"hono": "^4.6.14"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"typescript": "^5"
+	}
+}

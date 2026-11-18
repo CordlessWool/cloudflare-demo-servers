@@ -1,0 +1,21 @@
+# Schlankes Multi-Stage-Image: Build-Stage mit Bun (Install, Test, Compile zu einem Binary),
+# Runtime-Stage nur mit dem Binary + CA-Zertifikaten (kein Bun/Node/Shell-Overhead im Image).
+FROM docker.io/oven/bun:1-slim AS build
+WORKDIR /app
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile || bun install
+COPY tsconfig.json ./
+COPY src ./src
+COPY test ./test
+RUN bun test
+RUN bun build --compile --minify --sourcemap src/index.ts --outfile /app/dist/practice-origin
+
+FROM docker.io/library/debian:12-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
+RUN useradd --system --no-create-home --uid 10001 appuser
+COPY --from=build /app/dist/practice-origin /usr/local/bin/practice-origin
+USER appuser
+ENV PORT=8080
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/practice-origin"]
