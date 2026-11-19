@@ -49,8 +49,8 @@ Whitespace, rekursiv. Signierer und Prüfer MÜSSEN exakt denselben Algorithmus 
 | `target` | string | Baustein Ziel: `search` \| `login` \| `admin` \| `sweep` \| `home` (siehe Bausteine) |
 | `identity` | string | Baustein Kennung: `script` \| `browser` \| `googlebot` \| `none` |
 | `cacheBust` | boolean | Baustein „Cache umgehen": hängt `v=<8 Hex>` an den Pfad |
-| `pace` | string | Baustein Tempo: `normal` (5000 ms) \| `slow` (20000 ms) |
-| `minIntervalMs` | number | Informativ: die App setzt 5000 bzw. 20000 aus `pace`. Der Runner leitet den Abstand aus `pace` ab, nicht aus diesem Feld, und erzwingt seine EIGENE, hart codierte Untergrenze (`RATE_FLOOR_MS`, 5000). |
+| `pace` | string | Baustein Tempo: `fast` (1000 ms, ab v4) \| `normal` (5000 ms) \| `slow` (20000 ms) |
+| `minIntervalMs` | number | Informativ: die App setzt den Wert aus `pace`. Der Runner leitet den Abstand aus `pace` ab, nicht aus diesem Feld, und erzwingt seine EIGENE, hart codierte Untergrenze (`RATE_FLOOR_MS`, ab v4 1000). |
 
 Entfallen gegenüber v1: `tool` und `disguise`.
 
@@ -103,7 +103,7 @@ Signatur einer Konfiguration (App, Wertung): `${target}|${identity}|${cacheBust 
 | `login` | `POST /login`, `Content-Type: application/x-www-form-urlencoded`, Body `username=<Name aus LOGIN_NAMES>&password=geheim123` |
 | `admin` | `GET` auf die Bestellübersicht in wechselnder Schreibweise: `['/admin/bestellungen', '/ADMIN/BESTELLUNGEN', '/Admin/Bestellungen', '/admin/Bestellungen']` (alle liefern dieselben Bestelldaten) |
 | `sweep` | `GET` auf einen Pfad aus `SWEEP_PATHS` (auch nicht vorhandene, 404) |
-| `home` | `GET /` |
+| `home` | `GET /` (in der App „Flut": nur Menge, unveränderter Pfad) |
 
 **Kennung (`identity`)**
 
@@ -117,9 +117,17 @@ Signatur einer Konfiguration (App, Wertung): `${target}|${identity}|${cacheBust 
 **Cache umgehen (`cacheBust`):** `true` hängt `v=<8 Hex>` (zufällig je Anfrage) an den Pfad,
 mit `?` oder, wenn schon eine Query da ist, mit `&`.
 
-**Tempo (`pace`):** `normal` = 5000 ms, `slow` = 20000 ms. Abstand =
-`max(RATE_FLOOR_MS, pace === 'slow' ? 20000 : 5000)`, aus `pace` abgeleitet, nicht aus
-`minIntervalMs`.
+**Tempo (`pace`):** `fast` = 1000 ms (ab v4), `normal` = 5000 ms, `slow` = 20000 ms. Abstand =
+`max(RATE_FLOOR_MS, PACE_INTERVAL_MS[pace])`, aus `pace` abgeleitet, nicht aus `minIntervalMs`.
+
+**Schleifentakt (ab v4):** Die Hauptschleife tickt im Takt von `LOOP_TICK_MS` (= `RATE_FLOOR_MS`,
+1000 ms), damit `fast` überhaupt gesendet werden kann. Befehle holt sie seltener
+(`COMMAND_POLL_INTERVAL_MS`, 5000 ms) und benutzt denselben Befehl mehrfach. Ein Befehl sendet nach
+`expiresAt` nichts mehr (`maybeSendAttackRequest`), damit ein wiederverwendeter Befehl nicht über
+seine TTL hinaus läuft; bleibt die App stumm, hört der Runner nach der TTL auf.
+
+**Kompatibilität:** `protocolVersion` bleibt `2` (nur ein zusätzlicher `pace`-Wert). Ein Runner bis
+v3 lehnt `fast` als unbekanntes Tempo ab und sendet nichts; `attack-runner-v4` versteht es.
 
 ### Request-Bau im Runner
 

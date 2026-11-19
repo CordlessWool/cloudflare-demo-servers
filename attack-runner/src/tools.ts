@@ -18,7 +18,7 @@ export const AttackTarget = {
 	ADMIN: 'admin',
 	/** Abgrasen: `GET` auf wechselnde, auch nicht vorhandene Pfade */
 	SWEEP: 'sweep',
-	/** Startseite: `GET /` */
+	/** „Flut“ in der App: `GET /` */
 	HOME: 'home'
 } as const;
 export type AttackTarget = (typeof AttackTarget)[keyof typeof AttackTarget];
@@ -36,6 +36,8 @@ export const AttackIdentity = {
 export type AttackIdentity = (typeof AttackIdentity)[keyof typeof AttackIdentity];
 
 export const AttackPace = {
+	/** Ab v4: eine Anfrage pro Sekunde. */
+	FAST: 'fast',
 	NORMAL: 'normal',
 	SLOW: 'slow'
 } as const;
@@ -84,9 +86,15 @@ export const ADMIN_PATHS = ['/admin/bestellungen', '/ADMIN/BESTELLUNGEN', '/Admi
 /** Pfade fürs Abgrasen, inklusive nicht vorhandener (404) -- genau das ist das Muster. */
 export const SWEEP_PATHS = ['/', '/produkte', '/suche', '/warenkorb', '/login', '/kasse', '/admin', '/wp-login.php', '/.env', '/api/intern', '/gibtsnicht', '/alt/shop'] as const;
 
+const PACE_INTERVAL_MS: Record<AttackPace, number> = {
+	[AttackPace.FAST]: 1000,
+	[AttackPace.NORMAL]: 5000,
+	[AttackPace.SLOW]: 20000
+};
+
 /** Tempo -> Abstand in ms. Nie unter RATE_FLOOR_MS (der Runner erzwingt das selbst). */
 export function intervalForPace(pace: AttackPace): number {
-	return Math.max(RATE_FLOOR_MS, pace === AttackPace.SLOW ? 20000 : 5000);
+	return Math.max(RATE_FLOOR_MS, PACE_INTERVAL_MS[pace]);
 }
 
 export interface AttackBlocks {
