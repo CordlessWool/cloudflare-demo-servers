@@ -113,6 +113,11 @@ export async function fetchAndVerifyCommand(
  * also kann kein Befehl dieses Ziel umlenken. Methode, Pfad, Body und User-Agent kommen aus den
  * Bausteinen des Befehls (`buildRequest`); der Abstand aus `pace`. Ungültige Bausteine werfen
  * `InvalidCommandError`, bevor irgendein Request entsteht.
+ *
+ * Die Schleife holt Befehle seltener (COMMAND_POLL_INTERVAL_MS), als sie sendet (LOOP_TICK_MS),
+ * und benutzt denselben Befehl mehrfach. Damit das keinen abgelaufenen Befehl weiterlaufen lässt,
+ * sendet ein Befehl nach `expiresAt` nichts mehr: Bleibt die App stumm, hört der Runner nach der
+ * TTL von selbst auf (zusätzlich zum Selbstzerstörungs-Timer).
  */
 export async function maybeSendAttackRequest(
 	deps: RunnerDeps,
@@ -124,6 +129,8 @@ export async function maybeSendAttackRequest(
 	assertValidCommand(payload);
 	if (!payload.toolEnabled) return null;
 	const now = deps.now();
+	// Abgelaufener Befehl (wiederverwendet zwischen zwei Abholungen): nichts mehr senden.
+	if (now >= payload.expiresAt) return null;
 	// Abstand aus `pace` (nie unter RATE_FLOOR_MS), nicht aus minIntervalMs.
 	if (limiter.msUntilNextAllowed(now, intervalForPace(payload.pace)) > 0) return null;
 	limiter.recordRequest(now);

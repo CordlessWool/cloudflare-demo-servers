@@ -13,11 +13,11 @@ Rate, Nonce) und den Ablauf gegen einen lokalen Test-Server (`test/runner.test.t
 
 Der Befehl trägt keinen festen Werkzeugnamen mehr, sondern Bausteine: `target`
 (`search|login|admin|sweep|home`), `identity` (`script|browser|googlebot|none`), `cacheBust`
-(boolean), `pace` (`normal` = 5 s, `slow` = 20 s) und `protocolVersion: 2`. Der Runner baut daraus
-genau einen Request je Zyklus (`src/tools.ts`, `buildRequest`). Bei `identity: none` sendet er einen
-leeren `user-agent`-Header (Bun würde sonst `Bun/<version>` senden). Unbekannte Werte oder eine
-andere `protocolVersion` lehnt er ab wie eine falsche Signatur, ohne Request. Der Abstand kommt aus
-`pace`, nie unter `RATE_FLOOR_MS`. Details: [`PROTOCOL.md`](PROTOCOL.md).
+(boolean), `pace` (`fast` = 1 s ab v4, `normal` = 5 s, `slow` = 20 s) und `protocolVersion: 2`. Der
+Runner baut daraus genau einen Request je Zyklus (`src/tools.ts`, `buildRequest`). Bei `identity:
+none` sendet er einen leeren `user-agent`-Header (Bun würde sonst `Bun/<version>` senden). Unbekannte
+Werte oder eine andere `protocolVersion` lehnt er ab wie eine falsche Signatur, ohne Request. Der
+Abstand kommt aus `pace`, nie unter `RATE_FLOOR_MS`. Details: [`PROTOCOL.md`](PROTOCOL.md).
 
 ## Wer steuert die Maschine?
 
@@ -35,8 +35,9 @@ Teilnehmer haben keinen Zugang.
 - **Signierte Befehle mit Ablaufzeit + Nonce:** HMAC-SHA256 über kanonisches JSON (siehe
   `src/signing.ts`), abgelaufene Befehle werden abgelehnt, jede Nonce nur einmal akzeptiert
   (`src/nonceStore.ts`, im RAM, die Maschine lebt nur eine Runde).
-- **Harte Rate-Obergrenze im Programm:** `RATE_FLOOR_MS` (5 s) wird unabhängig vom Befehlsinhalt
-  erzwungen (`src/rateLimiter.ts`); `pace: slow` verlängert den Abstand auf 20 s, verkürzen geht nicht.
+- **Harte Rate-Obergrenze im Programm:** `RATE_FLOOR_MS` (ab v4 1 s) wird unabhängig vom Befehlsinhalt
+  erzwungen (`src/rateLimiter.ts`); `pace: normal`/`slow` verlängern den Abstand auf 5 s bzw. 20 s,
+  unter die Untergrenze geht nichts.
 - **Timer:** Der Prozess beendet sich nach `SELF_DESTRUCT_MS` (45 min) auf jeden Fall und wird
   nicht neu gestartet (`Restart=on-failure`). Das ist kein Steuerungsweg, nur ein
   Sicherheitsnetz. Das Droplet selbst löscht die App: "Spiel beenden", Notaus oder der Cron

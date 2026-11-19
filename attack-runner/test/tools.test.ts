@@ -38,7 +38,8 @@ describe('Validierung', () => {
 		expect(isAttackIdentity(42)).toBe(false);
 		expect(isAttackPace('normal')).toBe(true);
 		expect(isAttackPace('slow')).toBe(true);
-		expect(isAttackPace('fast')).toBe(false);
+		expect(isAttackPace('fast')).toBe(true);
+		expect(isAttackPace('warp')).toBe(false);
 		expect(isAttackPace(undefined)).toBe(false);
 	});
 });
@@ -130,9 +131,10 @@ describe('buildRequest: cacheBust', () => {
 });
 
 describe('intervalForPace', () => {
-	test('normal = 5000, slow = 20000, nie unter 5000', () => {
+	test('fast = 1000, normal = 5000, slow = 20000, nie unter RATE_FLOOR_MS (1000)', () => {
+		expect(intervalForPace(AttackPace.FAST)).toBe(1000);
 		expect(intervalForPace(AttackPace.NORMAL)).toBe(5000);
 		expect(intervalForPace(AttackPace.SLOW)).toBe(20000);
-		expect(intervalForPace(AttackPace.NORMAL)).toBeGreaterThanOrEqual(5000);
+		expect(intervalForPace(AttackPace.FAST)).toBeGreaterThanOrEqual(1000);
 	});
 });

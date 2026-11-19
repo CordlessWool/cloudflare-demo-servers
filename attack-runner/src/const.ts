@@ -12,9 +12,12 @@ export const ResponseClass = {
 } as const;
 export type ResponseClass = (typeof ResponseClass)[keyof typeof ResponseClass];
 
-/** Harte Rate-Obergrenze: ~1 Anfrage/5s je Machine (#37). Der Runner erzwingt das SELBST, egal
- * was ein (kompromittierter) Befehl verlangen würde. */
-export const RATE_FLOOR_MS = 5000;
+/** Harte Rate-Obergrenze: 1 Anfrage/s je Machine (#37, ab v4 für Tempo `fast`). Der Runner erzwingt
+ * das SELBST, egal was ein (kompromittierter) Befehl verlangen würde. */
+export const RATE_FLOOR_MS = 1000;
+
+/** Takt der Hauptschleife: so oft wird geprüft, ob die nächste Anfrage fällig ist (= Untergrenze). */
+export const LOOP_TICK_MS = RATE_FLOOR_MS;
 
 /** Selbstzerstörungs-Timer als Sicherheitsnetz, unabhängig von Befehlen/Netzwerk. */
 export const SELF_DESTRUCT_MS = 45 * 60 * 1000;

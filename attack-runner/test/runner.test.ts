@@ -91,7 +91,7 @@ describe('fetchAndVerifyCommand', () => {
 		['protocolVersion 3', { protocolVersion: 3 }],
 		['unbekanntes target', { target: 'search_flood' }],
 		['unbekannte identity', { identity: 'curl' }],
-		['unbekanntes pace', { pace: 'fast' }],
+		['unbekanntes pace', { pace: 'warp' }],
 		['cacheBust kein boolean', { cacheBust: 'ja' }]
 	];
 	for (const [name, override] of invalid) {
@@ -196,6 +196,29 @@ describe('maybeSendAttackRequest', () => {
 		l2.recordRequest(1_000_000);
 		expect(await maybeSendAttackRequest(at(1_004_999), config, normal, l2)).toBeNull();
 		expect(await maybeSendAttackRequest(at(1_005_000), config, normal, l2)).not.toBeNull();
+	});
+
+	test('pace fast: nach 1 s erlaubt (RateLimiter mit Untergrenze 1000)', async () => {
+		targetServer = Bun.serve({ port: 0, fetch: () => new Response('ok', { status: 200 }) });
+		const config = makeConfig({ targetDomain: `127.0.0.1:${targetServer.port}` });
+		const at = (t: number): RunnerDeps => ({ fetchFn: fetch, now: () => t, log: () => {}, targetScheme: 'http' });
+		const fast = makePayload({ target: AttackTarget.HOME, pace: AttackPace.FAST, expiresAt: 1_999_999 });
+		const limiter = new RateLimiter(1000);
+		limiter.recordRequest(1_000_000);
+		expect(await maybeSendAttackRequest(at(1_000_999), config, fast, limiter)).toBeNull();
+		expect(await maybeSendAttackRequest(at(1_001_000), config, fast, limiter)).not.toBeNull();
+	});
+
+	test('abgelaufener Befehl (expiresAt erreicht): kein Request, null zurück', async () => {
+		let calls = 0;
+		const countingFetch = (async () => {
+			calls++;
+			return new Response('ok');
+		}) as unknown as typeof fetch;
+		const expired = makePayload({ expiresAt: 1_000_000 });
+		const d: RunnerDeps = { fetchFn: countingFetch, now: () => 1_000_000, log: () => {}, targetScheme: 'http' };
+		expect(await maybeSendAttackRequest(d, makeConfig(), expired, new RateLimiter(1000))).toBeNull();
+		expect(calls).toBe(0);
 	});
 
 	test('Rate-Untergrenze verhindert eine zu frühe zweite Anfrage', async () => {
