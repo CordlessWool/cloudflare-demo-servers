@@ -7,11 +7,11 @@
  * `Restart=on-failure`, Unit aus der cloud-init der App). Das Droplet löscht die App.
  */
 import { Hono } from 'hono';
-import { COMMAND_POLL_INTERVAL_MS, LOOP_TICK_MS, REPORT_INTERVAL_MS, SELF_DESTRUCT_MS } from './const.ts';
+import { LOOP_TICK_MS, SELF_DESTRUCT_MS } from './const.ts';
 import { NonceStore } from './nonceStore.ts';
 import { RateLimiter } from './rateLimiter.ts';
-import { emptyCounts } from './classify.ts';
-import { fetchAndVerifyCommand, mergeCounts, maybeSendAttackRequest, sendReport, validateTargetDomain, type AttackCommandPayload, type RunnerConfig, type RunnerDeps } from './runner.ts';
+import { createLoopState, runLoopStep } from './loop.ts';
+import { validateTargetDomain, type RunnerConfig, type RunnerDeps } from './runner.ts';
 
 function requireEnv(name: string): string {
 	const value = Bun.env[name];
@@ -40,41 +40,14 @@ app.get('/health', (c) => c.text('ok'));
 async function mainLoop(): Promise<void> {
 	const nonceStore = new NonceStore();
 	const limiter = new RateLimiter();
-	let lastPayload: AttackCommandPayload | null = null;
-	let counts = emptyCounts();
-	let lastReportAt = deps.now();
-	let lastCommandPollAt = 0;
+	const state = createLoopState(deps.now());
 
 	// Die Schleife tickt im Takt der Rate-Untergrenze (LOOP_TICK_MS), damit Tempo `fast` (1 s)
 	// überhaupt gesendet werden kann. Befehle werden seltener geholt (COMMAND_POLL_INTERVAL_MS);
 	// zwischen zwei Abholungen sendet derselbe (noch gültige) Befehl weiter (maybeSendAttackRequest
-	// stoppt nach `expiresAt`). Die Rate selbst erzwingt der RateLimiter aus `pace`, nicht der Takt.
+	// stoppt nach `expiresAt`). Ein fehlgeschlagener Poll stoppt das Senden (ab v5), siehe loop.ts.
 	for (;;) {
-		const now = deps.now();
-		if (now - lastCommandPollAt >= COMMAND_POLL_INTERVAL_MS) {
-			lastCommandPollAt = now;
-			try {
-				lastPayload = await fetchAndVerifyCommand(deps, config, nonceStore);
-			} catch (err) {
-				deps.log(`Befehl übersprungen: ${err instanceof Error ? err.message : String(err)}`);
-			}
-		}
-
-		if (lastPayload) {
-			try {
-				const requestCounts = await maybeSendAttackRequest(deps, config, lastPayload, limiter);
-				if (requestCounts) counts = mergeCounts(counts, requestCounts);
-			} catch (err) {
-				deps.log(`Anfrage übersprungen: ${err instanceof Error ? err.message : String(err)}`);
-			}
-		}
-
-		if (lastPayload && deps.now() - lastReportAt >= REPORT_INTERVAL_MS) {
-			await sendReport(deps, config, lastPayload, counts);
-			counts = emptyCounts();
-			lastReportAt = deps.now();
-		}
-
+		await runLoopStep(deps, config, state, nonceStore, limiter);
 		await new Promise((resolve) => setTimeout(resolve, LOOP_TICK_MS));
 	}
 }
