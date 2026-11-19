@@ -126,6 +126,12 @@ mit `?` oder, wenn schon eine Query da ist, mit `&`.
 `expiresAt` nichts mehr (`maybeSendAttackRequest`), damit ein wiederverwendeter Befehl nicht über
 seine TTL hinaus läuft; bleibt die App stumm, hört der Runner nach der TTL auf.
 
+**Fehlgeschlagener Poll (ab v5):** Schlägt eine Befehls-Abholung fehl (Netz, HTTP-Fehler,
+Signatur, Replay), sendet der Runner sofort nichts mehr, bis ein späterer Poll gelingt. Der letzte
+gute Befehl dient nur noch für Meldungen, damit die aufgelaufenen Zählungen ankommen. Eine
+fehlgeschlagene Meldung beendet den Prozess nicht: die Zählung bleibt erhalten und wird im nächsten
+Tick erneut gemeldet.
+
 **Kompatibilität:** `protocolVersion` bleibt `2` (nur ein zusätzlicher `pace`-Wert). Ein Runner bis
 v3 lehnt `fast` als unbekanntes Tempo ab und sendet nichts; `attack-runner-v4` versteht es.
 
