@@ -73,10 +73,12 @@ describe('buildRequest: target', () => {
 		expect(name).toBe(LOGIN_NAMES[LOGIN_NAMES.length - 1]!);
 	});
 
-	test('admin: GET auf einen der drei Admin-Pfade', () => {
-		expect(ADMIN_PATHS).toEqual(['/admin', '/ADMIN', '/Admin/bestellungen']);
-		expect(buildRequest(blocks({ target: AttackTarget.ADMIN }), () => 0)).toMatchObject({ method: 'GET', path: '/admin' });
-		expect(buildRequest(blocks({ target: AttackTarget.ADMIN }), () => 0.99)).toMatchObject({ method: 'GET', path: '/Admin/bestellungen' });
+	test('admin: GET auf die Bestellübersicht in wechselnder Schreibweise', () => {
+		expect(ADMIN_PATHS).toEqual(['/admin/bestellungen', '/ADMIN/BESTELLUNGEN', '/Admin/Bestellungen', '/admin/Bestellungen']);
+		// Alle Admin-Varianten zeigen auf die Bestellübersicht (case-insensitiv), nur in anderer Schreibweise.
+		for (const path of ADMIN_PATHS) expect(path.toLowerCase()).toBe('/admin/bestellungen');
+		expect(buildRequest(blocks({ target: AttackTarget.ADMIN }), () => 0)).toMatchObject({ method: 'GET', path: '/admin/bestellungen' });
+		expect(buildRequest(blocks({ target: AttackTarget.ADMIN }), () => 0.99)).toMatchObject({ method: 'GET', path: '/admin/Bestellungen' });
 	});
 
 	test('sweep: GET auf einen Pfad aus SWEEP_PATHS', () => {

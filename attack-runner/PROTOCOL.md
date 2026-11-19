@@ -101,7 +101,7 @@ Signatur einer Konfiguration (App, Wertung): `${target}|${identity}|${cacheBust 
 |---|---|
 | `search` | `GET /suche?q=<Begriff aus SEARCH_TERMS>` |
 | `login` | `POST /login`, `Content-Type: application/x-www-form-urlencoded`, Body `username=<Name aus LOGIN_NAMES>&password=geheim123` |
-| `admin` | `GET` auf einen Pfad aus `['/admin', '/ADMIN', '/Admin/bestellungen']` |
+| `admin` | `GET` auf die Bestellübersicht in wechselnder Schreibweise: `['/admin/bestellungen', '/ADMIN/BESTELLUNGEN', '/Admin/Bestellungen', '/admin/Bestellungen']` (alle liefern dieselben Bestelldaten) |
 | `sweep` | `GET` auf einen Pfad aus `SWEEP_PATHS` (auch nicht vorhandene, 404) |
 | `home` | `GET /` |
 

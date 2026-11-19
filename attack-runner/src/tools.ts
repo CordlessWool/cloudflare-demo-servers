@@ -74,8 +74,12 @@ export const LOGIN_NAMES = ['admin', 'test', 'info', 'kunde', 'max', 'anna', 'sh
 /** Festes, bewusst falsches Passwort für alle Login-Versuche. */
 export const LOGIN_PASSWORD = 'geheim123';
 
-/** Admin-Pfade, auch mit abweichender Schreibweise (Groß-/Kleinschreibung). */
-export const ADMIN_PATHS = ['/admin', '/ADMIN', '/Admin/bestellungen'] as const;
+/**
+ * Admin-Pfade: alle zeigen auf die Bestellübersicht (…/bestellungen), nur in wechselnder
+ * Schreibweise. Der Shop behandelt den Pfad case-insensitiv, liefert also für jede Variante die
+ * Bestelldaten -- eine Regel `eq "/admin/bestellungen"` greift aber nur bei genau einer Schreibweise.
+ */
+export const ADMIN_PATHS = ['/admin/bestellungen', '/ADMIN/BESTELLUNGEN', '/Admin/Bestellungen', '/admin/Bestellungen'] as const;
 
 /** Pfade fürs Abgrasen, inklusive nicht vorhandener (404) -- genau das ist das Muster. */
 export const SWEEP_PATHS = ['/', '/produkte', '/suche', '/warenkorb', '/login', '/kasse', '/admin', '/wp-login.php', '/.env', '/api/intern', '/gibtsnicht', '/alt/shop'] as const;
